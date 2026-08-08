@@ -76,6 +76,7 @@ install_os_dependencies() {
   local nodesource_key="/tmp/nodesource-repo.gpg.key"
   curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o "$nodesource_key"
   gpg --dearmor --yes --output /etc/apt/keyrings/nodesource.gpg "$nodesource_key"
+  chmod 0644 /etc/apt/keyrings/nodesource.gpg
   printf '%s\n' \
     'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' \
     >/etc/apt/sources.list.d/nodesource.list

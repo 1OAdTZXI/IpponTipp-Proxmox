@@ -91,10 +91,10 @@ credentials, and Django secrets remain private. Publish a version tag in the
 bootstrap repository and use that immutable tag for installation. `main` is
 useful while developing the installer but is not a stable installation source.
 
-Example, run as `root` in the Proxmox host shell after publishing tag `v0.1.0`:
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.1.1`:
 
 ```bash
-export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.1.0"
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.1.1"
 bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
 ```
 
