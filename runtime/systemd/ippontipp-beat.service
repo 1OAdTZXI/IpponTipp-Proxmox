@@ -12,7 +12,7 @@ WorkingDirectory=/opt/ippontipp/current
 Environment=DJANGO_ENV=prod
 Environment=PYTHONDONTWRITEBYTECODE=1
 EnvironmentFile=/etc/ippontipp/app.env
-ExecStart=/opt/ippontipp/current/.venv/bin/celery -A IpponTipp beat --loglevel=INFO --schedule=/var/lib/ippontipp/celerybeat-schedule
+ExecStart=/opt/ippontipp/current/.venv/bin/python -m celery -A IpponTipp beat --loglevel=INFO --schedule=/var/lib/ippontipp/celerybeat-schedule
 Restart=on-failure
 RestartSec=5
 PrivateTmp=true

@@ -62,10 +62,12 @@ ippontipp-deploy check
 ippontipp-deploy update
 ```
 
-The update builds a locked Python environment and Vue bundle in a new release
-directory, applies migrations, switches the `current` symlink, restarts the web
-and Celery services, and checks `/api/health/`. A failed health check switches
-the code symlink back, but intentionally does not reverse database migrations.
+The update builds a locked, relocatable Python environment and Vue bundle in a
+new release directory, applies migrations, switches the `current` symlink, and
+restarts the web and Celery services. Activation succeeds only after all three
+application services remain active and `/api/health/` passes three consecutive
+checks. A failed service start or runtime check switches the code symlink back,
+but intentionally does not reverse database migrations.
 
 ## Public bootstrap repository
 
@@ -91,10 +93,10 @@ credentials, and Django secrets remain private. Publish a version tag in the
 bootstrap repository and use that immutable tag for installation. `main` is
 useful while developing the installer but is not a stable installation source.
 
-Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.0`:
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.1`:
 
 ```bash
-export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.0"
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.1"
 bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
 ```
 
@@ -176,8 +178,8 @@ curl --fail http://127.0.0.1/api/health/
 - The installer still requires one end-to-end acceptance run on the target
   Proxmox host; local checks cannot verify template discovery, storage,
   networking, package installation, or service startup.
-- A failed health check restores the previous code symlink, but database
-  migrations are not automatically reversed.
+- A failed service start or runtime check restores the previous code symlink,
+  but database migrations are not automatically reversed.
 - The root-only GitHub token requires manual expiry and rotation.
 - The adapter assumes the current application layout plus Nginx, MariaDB, Redis,
   and systemd. It is not intended as a universal production topology.

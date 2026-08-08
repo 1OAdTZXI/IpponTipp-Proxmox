@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 APP_ROOT="${IPPONTIPP_APP_ROOT:-/opt/ippontipp}"
 APP_ENV_FILE="${IPPONTIPP_APP_ENV_FILE:-/etc/ippontipp/app.env}"
 UPDATER_ENV_FILE="${IPPONTIPP_UPDATER_ENV_FILE:-/etc/ippontipp/updater.env}"
@@ -8,6 +10,12 @@ STATE_FILE="${IPPONTIPP_STATE_FILE:-/var/lib/ippontipp/installed-release.env}"
 SELECTOR="${IPPONTIPP_RELEASE_SELECTOR:-/usr/local/lib/ippontipp/release_selector.py}"
 LOCK_FILE="${IPPONTIPP_UPDATE_LOCK_FILE:-/run/lock/ippontipp-update.lock}"
 GITHUB_API_URL="${GITHUB_API_URL:-https://api.github.com}"
+APPLICATION_SERVICES=(
+  ippontipp-web.service
+  ippontipp-worker.service
+  ippontipp-beat.service
+)
+ACTIVE_STAGING_DIR=""
 
 log() {
   printf '[IpponTipp] %s\n' "$*"
@@ -133,6 +141,7 @@ installed_sha() {
 build_release() {
   local staging="$APP_ROOT/releases/.staging-$RELEASE_SHA-$$"
   local archive="$TEMP_DIR/source.tar.gz"
+  ACTIVE_STAGING_DIR="$staging"
 
   github_get \
     "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/tarball/$RELEASE_SHA" \
@@ -146,6 +155,7 @@ build_release() {
 
   log "Installing locked Python dependencies"
   UV_PROJECT_ENVIRONMENT="$staging/.venv" \
+    UV_VENV_RELOCATABLE=1 \
     uv sync \
     --project "$staging/.devcontainer/python" \
     --locked \
@@ -164,6 +174,7 @@ build_release() {
   rm -rf "$staging/frontend/node_modules"
   chown -R ippontipp:ippontipp "$staging"
   mv "$staging" "$APP_ROOT/releases/$RELEASE_SHA"
+  ACTIVE_STAGING_DIR=""
 }
 
 write_state() {
@@ -179,21 +190,69 @@ write_state() {
   mv "$temporary_state" "$STATE_FILE"
 }
 
-restart_services() {
-  systemctl restart ippontipp-web.service
-  systemctl restart ippontipp-worker.service
-  systemctl restart ippontipp-beat.service
+diagnose_service() {
+  local service="$1"
+  systemctl --no-pager --full status "$service" >&2 || true
+  journalctl --no-pager -u "$service" -n 50 >&2 || true
 }
 
-wait_for_health() {
-  local attempt
+restart_services() {
+  local service
+  local failed=0
+  for service in "${APPLICATION_SERVICES[@]}"; do
+    if ! systemctl restart "$service"; then
+      diagnose_service "$service"
+      failed=1
+    fi
+  done
+  return "$failed"
+}
+
+application_services_active() {
+  local service
+  for service in "${APPLICATION_SERVICES[@]}"; do
+    systemctl is-active --quiet "$service" || return 1
+  done
+}
+
+diagnose_application_services() {
+  local service
+  for service in "${APPLICATION_SERVICES[@]}"; do
+    diagnose_service "$service"
+  done
+}
+
+wait_for_runtime() {
+  local attempt stable_checks=0
   for attempt in {1..20}; do
-    if curl --fail --silent --show-error http://127.0.0.1/api/health/ >/dev/null; then
-      return 0
+    if application_services_active &&
+      curl --fail --silent --show-error http://127.0.0.1/api/health/ >/dev/null; then
+      stable_checks=$((stable_checks + 1))
+      if ((stable_checks >= 3)); then
+        return 0
+      fi
+    else
+      stable_checks=0
     fi
     sleep 1
   done
+  diagnose_application_services
   return 1
+}
+
+restore_previous_release() {
+  local previous_release="$1"
+  if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+    log "Switching application code back to $previous_release"
+    ln -sfn "$previous_release" "$APP_ROOT/current"
+    restart_services
+    return
+  fi
+
+  if [[ -L "$APP_ROOT/current" ]]; then
+    rm -f -- "$APP_ROOT/current"
+  fi
+  systemctl stop "${APPLICATION_SERVICES[@]}" || true
 }
 
 activate_release() {
@@ -208,21 +267,32 @@ activate_release() {
     "$release_path/manage.py" migrate --noinput; then
     if [[ -n "$previous_release" && -d "$previous_release" ]]; then
       log "Migration failed; restarting the previously installed release"
-      restart_services
+      if ! restart_services; then
+        fail "Database migration failed and the previous release could not be restarted"
+      fi
     fi
     fail "Database migration failed; no new release was activated"
   fi
 
   ln -sfn "$release_path" "$APP_ROOT/current"
-  restart_services
-
-  if ! wait_for_health; then
-    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
-      log "Health check failed; switching application code back to $previous_release"
-      ln -sfn "$previous_release" "$APP_ROOT/current"
-      restart_services
+  if ! restart_services; then
+    if ! restore_previous_release "$previous_release"; then
+      fail "The new release failed to start and the previous release could not be restored"
     fi
-    fail "The new release failed its health check; database migrations were not reversed"
+    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+      fail "The new release failed to start; the previous release was restored"
+    fi
+    fail "The new release failed to start; no release remains active"
+  fi
+
+  if ! wait_for_runtime; then
+    if ! restore_previous_release "$previous_release"; then
+      fail "The new release failed runtime checks and the previous release could not be restored"
+    fi
+    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+      fail "The new release failed runtime checks; the previous release was restored, but database migrations were not reversed"
+    fi
+    fail "The new release failed runtime checks; no release remains active and database migrations were not reversed"
   fi
 
   write_state
@@ -248,7 +318,7 @@ main() {
   flock -n 9 || fail "Another IpponTipp deployment is already running"
 
   TEMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$TEMP_DIR"' EXIT
+  trap 'cleanup_temporary_files' EXIT
 
   load_configuration
   create_curl_config
@@ -268,6 +338,14 @@ main() {
     build_release
   fi
   activate_release
+}
+
+cleanup_temporary_files() {
+  rm -rf -- "$TEMP_DIR"
+  if [[ -n "$ACTIVE_STAGING_DIR" &&
+    "$ACTIVE_STAGING_DIR" == "$APP_ROOT/releases/.staging-"* ]]; then
+    rm -rf -- "$ACTIVE_STAGING_DIR"
+  fi
 }
 
 main "$@"
