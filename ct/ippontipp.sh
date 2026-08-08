@@ -189,6 +189,7 @@ create_container() {
   pct create "$CTID" "$TEMPLATE_REF" \
     --arch amd64 \
     --cores "$CORES" \
+    --features nesting=1 \
     --hostname "$HOSTNAME" \
     --memory "$MEMORY" \
     --net0 "$net0" \

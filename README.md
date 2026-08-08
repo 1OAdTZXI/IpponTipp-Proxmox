@@ -115,9 +115,11 @@ The host script asks for:
 - optional SMTP settings.
 
 Defaults are 2 CPU cores, 3 GiB memory, 16 GiB disk, DHCP, and an unprivileged
-Debian 13 container. The script downloads the latest Debian 13 AMD64 template,
-creates the LXC, transfers a root-only bootstrap file, and runs the container
-installer. It keeps a failed LXC for inspection.
+Debian 13 container. The LXC has Proxmox's `nesting` feature enabled because
+systemd 257 needs mount-namespace support to start hardened services such as
+Redis inside an unprivileged container. The script downloads the latest Debian
+13 AMD64 template, creates the LXC, transfers a root-only bootstrap file, and
+runs the container installer. It keeps a failed LXC for inspection.
 
 For the private application repository, create a fine-grained personal access
 token with:

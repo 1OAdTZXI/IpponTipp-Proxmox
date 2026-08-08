@@ -5,6 +5,11 @@ BOOTSTRAP_ENV="${IPPONTIPP_BOOTSTRAP_ENV:-/root/ippontipp-bootstrap.env}"
 DEFAULT_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/main"
 UV_VERSION="0.12.1"
 
+# Debian's minimal LXC template provides C.UTF-8, but not necessarily the
+# locale inherited from the Proxmox host (commonly en_US.UTF-8).
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
 log() {
   printf '[IpponTipp installer] %s\n' "$*"
 }
@@ -113,9 +118,22 @@ write_env() {
   printf '%s=%s\n' "$key" "$(escape_env_value "$value")" >>"$file"
 }
 
+enable_and_start_service() {
+  local service="$1"
+  if systemctl enable --now "$service"; then
+    return 0
+  fi
+
+  systemctl --no-pager --full status "$service" >&2 || true
+  journalctl --no-pager -u "$service" -n 50 >&2 || true
+  fail "Could not start required service: $service"
+}
+
 configure_database_and_filesystem() {
   log "Creating service account and MariaDB database"
-  systemctl enable --now mariadb.service redis-server.service
+  enable_and_start_service mariadb.service
+  enable_and_start_service redis-server.service
+  [[ "$(redis-cli ping)" == "PONG" ]] || fail "Redis did not respond to PING"
 
   if ! id ippontipp >/dev/null 2>&1; then
     useradd --system --home-dir /var/lib/ippontipp --create-home --shell /usr/sbin/nologin ippontipp
