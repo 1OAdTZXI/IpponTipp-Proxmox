@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 BOOTSTRAP_ENV="${IPPONTIPP_BOOTSTRAP_ENV:-/root/ippontipp-bootstrap.env}"
 DEFAULT_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/main"
+UPDATER_BIN="/usr/local/sbin/ippontipp-deploy"
 UV_VERSION="0.12.1"
 
 # Debian's minimal LXC template provides C.UTF-8, but not necessarily the
@@ -212,9 +213,9 @@ download_public_asset() {
 
 install_runtime_assets() {
   log "Installing updater, systemd units, and Nginx configuration"
-  download_public_asset bin/ippontipp-deploy /usr/local/sbin/ippontipp-deploy
+  download_public_asset bin/ippontipp-deploy "$UPDATER_BIN"
   download_public_asset lib/release_selector.py /usr/local/lib/ippontipp/release_selector.py
-  chmod 0755 /usr/local/sbin/ippontipp-deploy /usr/local/lib/ippontipp/release_selector.py
+  chmod 0755 "$UPDATER_BIN" /usr/local/lib/ippontipp/release_selector.py
 
   local service
   for service in ippontipp-web ippontipp-worker ippontipp-beat; do
@@ -238,7 +239,7 @@ main() {
   install_os_dependencies
   configure_database_and_filesystem
   install_runtime_assets
-  ippontipp-deploy update
+  "$UPDATER_BIN" update
 
   rm -f "$BOOTSTRAP_ENV"
   log "Installation completed: $(cat /var/lib/ippontipp/access-url)"

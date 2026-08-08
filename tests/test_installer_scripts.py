@@ -70,6 +70,13 @@ class ContainerInstallerTestCase(unittest.TestCase):
         self.assertIn('systemctl --no-pager --full status "$service"', script)
         self.assertIn('journalctl --no-pager -u "$service" -n 50', script)
 
+    def test_initial_deployment_does_not_depend_on_sbin_path(self):
+        script = CONTAINER_INSTALLER.read_text()
+
+        self.assertIn('UPDATER_BIN="/usr/local/sbin/ippontipp-deploy"', script)
+        self.assertIn('"$UPDATER_BIN" update', script)
+        self.assertNotIn("\n  ippontipp-deploy update\n", script)
+
 
 if __name__ == "__main__":
     unittest.main()
