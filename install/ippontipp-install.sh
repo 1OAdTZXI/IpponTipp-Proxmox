@@ -85,11 +85,15 @@ install_os_dependencies() {
 
   local uv_installer="/tmp/uv-install.sh"
   curl -fsSL "https://astral.sh/uv/$UV_VERSION/install.sh" -o "$uv_installer"
+  export PATH="/usr/local/bin:$PATH"
   UV_UNMANAGED_INSTALL=/usr/local/bin sh "$uv_installer"
 
   node --version
   npm --version
-  uv --version
+  if [[ ! -x /usr/local/bin/uv ]]; then
+    fail "uv was installed to /usr/local/bin, but the binary is missing"
+  fi
+  /usr/local/bin/uv --version
 }
 
 escape_env_value() {
