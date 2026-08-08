@@ -1,0 +1,273 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_ROOT="${IPPONTIPP_APP_ROOT:-/opt/ippontipp}"
+APP_ENV_FILE="${IPPONTIPP_APP_ENV_FILE:-/etc/ippontipp/app.env}"
+UPDATER_ENV_FILE="${IPPONTIPP_UPDATER_ENV_FILE:-/etc/ippontipp/updater.env}"
+STATE_FILE="${IPPONTIPP_STATE_FILE:-/var/lib/ippontipp/installed-release.env}"
+SELECTOR="${IPPONTIPP_RELEASE_SELECTOR:-/usr/local/lib/ippontipp/release_selector.py}"
+LOCK_FILE="${IPPONTIPP_UPDATE_LOCK_FILE:-/run/lock/ippontipp-update.lock}"
+GITHUB_API_URL="${GITHUB_API_URL:-https://api.github.com}"
+
+log() {
+  printf '[IpponTipp] %s\n' "$*"
+}
+
+fail() {
+  printf '[IpponTipp] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
+}
+
+load_configuration() {
+  [[ -r "$UPDATER_ENV_FILE" ]] || fail "Missing updater configuration: $UPDATER_ENV_FILE"
+  [[ -r "$APP_ENV_FILE" ]] || fail "Missing application configuration: $APP_ENV_FILE"
+  [[ -r "$SELECTOR" ]] || fail "Missing release selector: $SELECTOR"
+
+  set -a
+  # Both files are root-owned deployment configuration, not repository content.
+  # shellcheck disable=SC1090
+  source "$UPDATER_ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$APP_ENV_FILE"
+  set +a
+
+  : "${GITHUB_TOKEN:?GITHUB_TOKEN is required}"
+  : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+  : "${DEPLOYMENT_CHANNEL:?DEPLOYMENT_CHANNEL is required}"
+
+  [[ "$GITHUB_TOKEN" =~ ^[A-Za-z0-9_]+$ ]] || fail "GITHUB_TOKEN has an unexpected format"
+  [[ "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
+    fail "GITHUB_REPOSITORY must have the form owner/repository"
+  [[ "$DEPLOYMENT_CHANNEL" == "release-candidate" || "$DEPLOYMENT_CHANNEL" == "production" ]] ||
+    fail "DEPLOYMENT_CHANNEL must be release-candidate or production"
+}
+
+create_curl_config() {
+  CURL_CONFIG="$TEMP_DIR/curl.conf"
+  umask 077
+  {
+    printf 'fail\n'
+    printf 'silent\n'
+    printf 'show-error\n'
+    printf 'location\n'
+    printf 'connect-timeout = 15\n'
+    printf 'retry = 3\n'
+    printf 'header = "Accept: application/vnd.github+json"\n'
+    printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN"
+    printf 'header = "X-GitHub-Api-Version: %s"\n' "${GITHUB_API_VERSION:-2026-03-10}"
+    printf 'user-agent = "IpponTipp-Proxmox-Updater"\n'
+  } >"$CURL_CONFIG"
+}
+
+github_get() {
+  local url="$1"
+  local output="$2"
+  curl --config "$CURL_CONFIG" --output "$output" "$url"
+}
+
+merge_tag_page() {
+  local combined="$1"
+  local page_file="$2"
+  python3 - "$combined" "$page_file" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+combined_path = Path(sys.argv[1])
+page_path = Path(sys.argv[2])
+combined = json.loads(combined_path.read_text()) if combined_path.exists() else []
+page = json.loads(page_path.read_text())
+if not isinstance(page, list):
+    raise SystemExit("GitHub tags endpoint did not return an array")
+combined.extend(page)
+combined_path.write_text(json.dumps(combined))
+print(len(page))
+PY
+}
+
+resolve_release() {
+  local all_tags="$TEMP_DIR/tags.json"
+  local page_file page_size page=1
+  printf '[]' >"$all_tags"
+
+  while :; do
+    page_file="$TEMP_DIR/tags-$page.json"
+    github_get \
+      "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/tags?per_page=100&page=$page" \
+      "$page_file"
+    page_size="$(merge_tag_page "$all_tags" "$page_file")"
+    ((page_size < 100)) && break
+    page=$((page + 1))
+  done
+
+  local selection
+  selection="$(python3 "$SELECTOR" --channel "$DEPLOYMENT_CHANNEL" <"$all_tags")" ||
+    fail "No deployable release was found for channel $DEPLOYMENT_CHANNEL"
+
+  RELEASE_TAG="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["tag"])' <<<"$selection")"
+  RELEASE_SHA="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])' <<<"$selection")"
+  RELEASE_VERSION="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' <<<"$selection")"
+
+  local comparison="$TEMP_DIR/compare.json"
+  github_get \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/compare/$RELEASE_SHA...master" \
+    "$comparison"
+  python3 "$SELECTOR" --assert-master-contains "$RELEASE_SHA" <"$comparison" ||
+    fail "Tag $RELEASE_TAG does not point to a commit on master"
+}
+
+installed_sha() {
+  if [[ -r "$STATE_FILE" ]]; then
+    (
+      # shellcheck disable=SC1090
+      source "$STATE_FILE"
+      printf '%s' "${INSTALLED_SHA:-}"
+    )
+  fi
+}
+
+build_release() {
+  local staging="$APP_ROOT/releases/.staging-$RELEASE_SHA-$$"
+  local archive="$TEMP_DIR/source.tar.gz"
+
+  github_get \
+    "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/tarball/$RELEASE_SHA" \
+    "$archive"
+
+  mkdir -p "$staging"
+  tar -xzf "$archive" --strip-components=1 -C "$staging"
+  [[ -f "$staging/manage.py" ]] || fail "Downloaded release does not contain manage.py"
+  [[ -f "$staging/.devcontainer/python/uv.lock" ]] || fail "Downloaded release has no uv lockfile"
+  [[ -f "$staging/frontend/package-lock.json" ]] || fail "Downloaded release has no npm lockfile"
+
+  log "Installing locked Python dependencies"
+  UV_PROJECT_ENVIRONMENT="$staging/.venv" \
+    uv sync \
+    --project "$staging/.devcontainer/python" \
+    --locked \
+    --no-dev \
+    --no-install-project
+
+  log "Building the Vue frontend from the npm lockfile"
+  npm --prefix "$staging/frontend" ci
+  npm --prefix "$staging/frontend" run build
+
+  log "Checking Django and collecting static assets"
+  DJANGO_ENV=prod "$staging/.venv/bin/python" "$staging/manage.py" check
+  DJANGO_ENV=prod "$staging/.venv/bin/python" \
+    "$staging/manage.py" collectstatic --noinput
+
+  rm -rf "$staging/frontend/node_modules"
+  chown -R ippontipp:ippontipp "$staging"
+  mv "$staging" "$APP_ROOT/releases/$RELEASE_SHA"
+}
+
+write_state() {
+  local temporary_state="$STATE_FILE.tmp"
+  umask 077
+  {
+    printf 'DEPLOYMENT_CHANNEL="%s"\n' "$DEPLOYMENT_CHANNEL"
+    printf 'INSTALLED_SHA="%s"\n' "$RELEASE_SHA"
+    printf 'INSTALLED_TAG="%s"\n' "$RELEASE_TAG"
+    printf 'INSTALLED_VERSION="%s"\n' "$RELEASE_VERSION"
+  } >"$temporary_state"
+  chown root:root "$temporary_state"
+  mv "$temporary_state" "$STATE_FILE"
+}
+
+restart_services() {
+  systemctl restart ippontipp-web.service
+  systemctl restart ippontipp-worker.service
+  systemctl restart ippontipp-beat.service
+}
+
+wait_for_health() {
+  local attempt
+  for attempt in {1..20}; do
+    if curl --fail --silent --show-error http://127.0.0.1/api/health/ >/dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+activate_release() {
+  local release_path="$APP_ROOT/releases/$RELEASE_SHA"
+  local previous_release=""
+  [[ -L "$APP_ROOT/current" ]] && previous_release="$(readlink -f "$APP_ROOT/current")"
+
+  systemctl stop ippontipp-beat.service ippontipp-worker.service ippontipp-web.service || true
+
+  log "Applying database migrations"
+  if ! DJANGO_ENV=prod "$release_path/.venv/bin/python" \
+    "$release_path/manage.py" migrate --noinput; then
+    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+      log "Migration failed; restarting the previously installed release"
+      restart_services
+    fi
+    fail "Database migration failed; no new release was activated"
+  fi
+
+  ln -sfn "$release_path" "$APP_ROOT/current"
+  restart_services
+
+  if ! wait_for_health; then
+    if [[ -n "$previous_release" && -d "$previous_release" ]]; then
+      log "Health check failed; switching application code back to $previous_release"
+      ln -sfn "$previous_release" "$APP_ROOT/current"
+      restart_services
+    fi
+    fail "The new release failed its health check; database migrations were not reversed"
+  fi
+
+  write_state
+  log "Installed $RELEASE_TAG ($RELEASE_SHA)"
+}
+
+main() {
+  local operation="${1:-update}"
+  [[ "$operation" == "check" || "$operation" == "update" ]] ||
+    fail "Usage: ippontipp-deploy [check|update]"
+  [[ "$EUID" -eq 0 ]] || fail "Run this command as root"
+
+  require_command curl
+  require_command flock
+  require_command npm
+  require_command python3
+  require_command systemctl
+  require_command tar
+  require_command uv
+
+  mkdir -p "$APP_ROOT/releases" "$(dirname "$STATE_FILE")"
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || fail "Another IpponTipp deployment is already running"
+
+  TEMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TEMP_DIR"' EXIT
+
+  load_configuration
+  create_curl_config
+  resolve_release
+
+  local current_sha
+  current_sha="$(installed_sha)"
+  if [[ "$current_sha" == "$RELEASE_SHA" ]]; then
+    log "$RELEASE_TAG is already installed"
+    return 0
+  fi
+
+  log "Newest $DEPLOYMENT_CHANNEL release: $RELEASE_TAG ($RELEASE_SHA)"
+  [[ "$operation" == "check" ]] && return 0
+
+  if [[ ! -d "$APP_ROOT/releases/$RELEASE_SHA" ]]; then
+    build_release
+  fi
+  activate_release
+}
+
+main "$@"

@@ -1,0 +1,22 @@
+[Unit]
+Description=IpponTipp Celery beat scheduler
+After=network-online.target mariadb.service redis-server.service ippontipp-worker.service
+Wants=network-online.target
+Requires=mariadb.service redis-server.service
+
+[Service]
+Type=simple
+User=ippontipp
+Group=ippontipp
+WorkingDirectory=/opt/ippontipp/current
+Environment=DJANGO_ENV=prod
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/ippontipp/app.env
+ExecStart=/opt/ippontipp/current/.venv/bin/celery -A IpponTipp beat --loglevel=INFO --schedule=/var/lib/ippontipp/celerybeat-schedule
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

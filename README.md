@@ -1,0 +1,174 @@
+# IpponTipp on Proxmox VE
+
+This package provides a Community Scripts-style installation flow for an
+internal IpponTipp test environment. It creates one unprivileged Debian 13 LXC
+and installs the application and its local services. Create separate containers
+for `release-candidate` and `production`; they do not share data or secrets.
+
+The package is designed for Proxmox VE 9 or newer on AMD64. Its host script has
+not yet been exercised against a real Proxmox host from this repository's test
+environment, so the first installation should be treated as an acceptance test.
+
+## Deployment model
+
+```text
+browser or optional existing reverse proxy
+                  |
+             LXC port 80
+                  |
+               Nginx
+                  |
+       Gunicorn / Django / Vue SPA
+             |             |
+          MariaDB       Redis
+                          |
+                   Celery Beat + Worker
+```
+
+There is no Cron job. Celery Beat schedules `event.sync_competitions` every 30
+minutes, Redis transports the task, and a Celery Worker executes it. A file lock
+prevents overlapping synchronization runs.
+
+## Release contract
+
+The updater considers exact, case-sensitive tag names only:
+
+| Channel | Accepted tag | Example |
+|---|---|---|
+| `release-candidate` | `release/MAJOR.MINOR.PATCH-rc.CANDIDATE` | `release/1.0.0-rc.1` |
+| `production` | `release/MAJOR.MINOR.PATCH` | `release/1.0.0` |
+
+Core versions and RC numbers are ordered numerically, so `1.10.0-rc.2` is newer
+than `1.9.0-rc.20`, and `1.0.0-rc.10` is newer than `1.0.0-rc.2`.
+`release/rc*`, `RELEASE-*`, branches, malformed versions, and the other
+channel's tags are ignored. Numeric identifiers with leading zeroes are
+rejected to remain SemVer-compatible. The selected tag must resolve to a commit
+reachable from `master`. Tags should be immutable. A channel never falls back
+to `master` or to the other channel when no matching tag exists.
+
+Updates are manual:
+
+```bash
+ippontipp-deploy check
+ippontipp-deploy update
+```
+
+The update builds a locked Python environment and Vue bundle in a new release
+directory, applies migrations, switches the `current` symlink, restarts the web
+and Celery services, and checks `/api/health/`. A failed health check switches
+the code symlink back, but intentionally does not reverse database migrations.
+
+## Public bootstrap repository
+
+Place the contents of this directory at the root of a small public repository,
+recommended as `IpponTipp-Proxmox`. The resulting public layout is:
+
+```text
+ct/ippontipp.sh
+install/ippontipp-install.sh
+bin/ippontipp-deploy
+lib/release_selector.py
+runtime/nginx/ippontipp.conf
+runtime/systemd/ippontipp-{web,worker,beat}.service
+```
+
+Only generic installation logic belongs there. Application source, GitHub
+credentials, generated database credentials, and Django secrets remain private.
+Publish a version tag in the bootstrap repository and use that immutable tag for
+installation. `main` is useful while developing the installer but is not a
+stable installation source.
+
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.1.0`:
+
+```bash
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.1.0"
+bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
+```
+
+This public repository is the right place for the entry script because a
+private bootstrap would require credentials before it could ask for
+credentials. The private application repository remains the source of the
+selected tagged archive.
+
+## First installation
+
+The host script asks for:
+
+- release channel;
+- default or advanced LXC sizing and networking;
+- private GitHub repository;
+- GitHub read token;
+- whether an existing reverse proxy is used and, if so, its browser-facing URL;
+- optional SMTP settings.
+
+Defaults are 2 CPU cores, 3 GiB memory, 16 GiB disk, DHCP, and an unprivileged
+Debian 13 container. The script downloads the latest Debian 13 AMD64 template,
+creates the LXC, transfers a root-only bootstrap file, and runs the container
+installer. It keeps a failed LXC for inspection.
+
+For the private application repository, create a fine-grained personal access
+token with:
+
+- access to only the IpponTipp repository;
+- repository permission `Contents: Read-only`;
+- an explicit expiry suitable for the test environment.
+
+A GitHub App is unnecessary for these two local containers. It becomes useful
+only when many machines need centrally managed, short-lived credentials. The
+installer stores the token as an environment variable in
+`/etc/ippontipp/updater.env`, owned by root with mode `0600`; it does not pass
+the token in process arguments. Rotate an expired token by editing that file.
+
+## HTTP and an optional reverse proxy
+
+Without a reverse proxy, open `http://<container-ip>`. Secure cookies and forced
+HTTPS are disabled for this local mode.
+
+When the prompt for an existing reverse proxy is answered with `yes`, provide
+the complete URL used by the browser, for example `https://ippontipp.home.arpa`.
+Configure that proxy to use `http://<container-ip>:80` as its upstream and to
+forward `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto`. TLS terminates at the
+external proxy; the LXC still listens on plain HTTP. Do not expose this test
+configuration directly to the public internet.
+
+## Persistence and operations
+
+Persistence is deliberately simple for this test environment. Each LXC root
+disk contains:
+
+| Path | Contents |
+|---|---|
+| `/var/lib/mysql` | MariaDB application data |
+| `/etc/ippontipp/app.env` | Django, database, email, URL, and Celery environment |
+| `/etc/ippontipp/updater.env` | Release channel and private GitHub access |
+| `/opt/ippontipp/releases` | Built application releases |
+| `/var/lib/ippontipp` | Installed-release metadata, Celery Beat state, and task lock |
+
+An update preserves these paths and the database. RC and production have
+independent MariaDB instances. No bind mount, external database, retention
+policy, or backup automation is included; deleting the LXC deletes its data.
+
+Useful diagnostics inside a container:
+
+```bash
+systemctl status ippontipp-web ippontipp-worker ippontipp-beat nginx mariadb redis-server
+journalctl -u ippontipp-web -u ippontipp-worker -u ippontipp-beat --since today
+curl --fail http://127.0.0.1/api/health/
+```
+
+## Portability beyond Proxmox
+
+The Proxmox-specific part is limited to LXC creation and local service
+provisioning. The reusable application contract is a tagged source revision,
+locked Python and npm dependencies, environment-provided configuration, a
+Gunicorn web process, Celery Worker and Beat processes, Redis, migrations, a
+static build, and a health endpoint.
+
+That contract maps well to a conventional IONOS VM or container host. A managed
+platform such as Render would express the same web, worker, scheduler, Redis,
+build, migration, and health-check responsibilities as platform services rather
+than running this LXC installer. Render commonly uses PostgreSQL and platform
+static-file handling, while this package currently assumes MariaDB and Nginx;
+those provider adapters would need explicit changes. The application release
+and process model therefore remains useful, but the Proxmox script itself is not
+intended to be the universal deployment mechanism.

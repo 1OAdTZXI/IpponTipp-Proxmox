@@ -1,0 +1,26 @@
+[Unit]
+Description=IpponTipp web application
+After=network-online.target mariadb.service
+Wants=network-online.target
+Requires=mariadb.service
+
+[Service]
+Type=notify
+User=ippontipp
+Group=www-data
+WorkingDirectory=/opt/ippontipp/current
+Environment=DJANGO_ENV=prod
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/ippontipp/app.env
+RuntimeDirectory=ippontipp
+RuntimeDirectoryMode=0750
+UMask=0007
+ExecStart=/opt/ippontipp/current/.venv/bin/gunicorn --workers 2 --bind unix:/run/ippontipp/gunicorn.sock --access-logfile - --error-logfile - IpponTipp.wsgi
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
