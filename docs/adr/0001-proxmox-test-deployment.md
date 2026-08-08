@@ -26,8 +26,8 @@ on this package.
 3. Ask for a fine-grained, repository-scoped read token on first execution and
    store it in a root-only environment file.
 4. Deploy manually from exact tags. RC accepts
-   `release/MAJOR.MINOR.PATCH-rc.CANDIDATE`; production accepts
-   `release/MAJOR.MINOR.PATCH`. Select the highest SemVer-compatible core
+   `releases/MAJOR.MINOR.PATCH-rc.CANDIDATE`; production accepts
+   `releases/MAJOR.MINOR.PATCH`. Select the highest SemVer-compatible core
    version and RC number, and reject a tag whose commit is not reachable from
    `master`. Ignore legacy tags and do not fall back to a branch or another
    channel.

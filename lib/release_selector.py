@@ -12,13 +12,13 @@ from typing import Any
 
 CHANNEL_PATTERNS = {
     "release-candidate": re.compile(
-        r"^release/(?P<major>0|[1-9][0-9]*)\."
+        r"^releases/(?P<major>0|[1-9][0-9]*)\."
         r"(?P<minor>0|[1-9][0-9]*)\."
         r"(?P<patch>0|[1-9][0-9]*)-rc\."
         r"(?P<prerelease>0|[1-9][0-9]*)$"
     ),
     "production": re.compile(
-        r"^release/(?P<major>0|[1-9][0-9]*)\."
+        r"^releases/(?P<major>0|[1-9][0-9]*)\."
         r"(?P<minor>0|[1-9][0-9]*)\."
         r"(?P<patch>0|[1-9][0-9]*)$"
     ),

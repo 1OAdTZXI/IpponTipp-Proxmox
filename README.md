@@ -44,12 +44,12 @@ The updater considers exact, case-sensitive tag names only:
 
 | Channel | Accepted tag | Example |
 |---|---|---|
-| `release-candidate` | `release/MAJOR.MINOR.PATCH-rc.CANDIDATE` | `release/1.0.0-rc.1` |
-| `production` | `release/MAJOR.MINOR.PATCH` | `release/1.0.0` |
+| `release-candidate` | `releases/MAJOR.MINOR.PATCH-rc.CANDIDATE` | `releases/1.0.0-rc.1` |
+| `production` | `releases/MAJOR.MINOR.PATCH` | `releases/1.0.0` |
 
 Core versions and RC numbers are ordered numerically, so `1.10.0-rc.2` is newer
 than `1.9.0-rc.20`, and `1.0.0-rc.10` is newer than `1.0.0-rc.2`.
-`release/rc*`, `RELEASE-*`, branches, malformed versions, and the other
+`release/*`, `releases/rc*`, `RELEASE-*`, branches, malformed versions, and the other
 channel's tags are ignored. Numeric identifiers with leading zeroes are
 rejected to remain SemVer-compatible. The selected tag must resolve to a commit
 reachable from `master`. Tags should be immutable. A channel never falls back
@@ -91,10 +91,10 @@ credentials, and Django secrets remain private. Publish a version tag in the
 bootstrap repository and use that immutable tag for installation. `main` is
 useful while developing the installer but is not a stable installation source.
 
-Example, run as `root` in the Proxmox host shell after publishing tag `v0.1.3`:
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.0`:
 
 ```bash
-export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.1.3"
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.0"
 bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
 ```
 

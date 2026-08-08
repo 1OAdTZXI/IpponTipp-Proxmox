@@ -23,44 +23,46 @@ class ReleaseSelectorTestCase(unittest.TestCase):
 
     def test_release_candidate_selects_highest_semantic_version(self):
         tags = [
-            {"name": "release/1.9.0-rc.20", "commit": {"sha": "old-version"}},
-            {"name": "release/1.10.0-rc.2", "commit": {"sha": "old-candidate"}},
-            {"name": "release/1.10.0-rc.10", "commit": {"sha": "new"}},
-            {"name": "release/1.10.0", "commit": {"sha": "production"}},
-            {"name": "release/rc9.9.9", "commit": {"sha": "old-rc-format"}},
-            {"name": "release/2.0.0", "commit": {"sha": "production"}},
+            {"name": "releases/1.9.0-rc.20", "commit": {"sha": "old-version"}},
+            {"name": "releases/1.10.0-rc.2", "commit": {"sha": "old-candidate"}},
+            {"name": "releases/1.10.0-rc.10", "commit": {"sha": "new"}},
+            {"name": "releases/1.10.0", "commit": {"sha": "production"}},
+            {"name": "releases/rc9.9.9", "commit": {"sha": "old-rc-format"}},
+            {"name": "releases/2.0.0", "commit": {"sha": "production"}},
+            {"name": "release/9.9.9-rc.99", "commit": {"sha": "old-prefix"}},
             {"name": "RELEASE-9.9.9", "commit": {"sha": "legacy"}},
         ]
 
         selected = self.selector.select_release(tags, "release-candidate")
 
-        self.assertEqual(selected.tag, "release/1.10.0-rc.10")
+        self.assertEqual(selected.tag, "releases/1.10.0-rc.10")
         self.assertEqual(selected.version, "1.10.0-rc.10")
         self.assertEqual(selected.sha, "new")
 
     def test_production_excludes_release_candidates_and_legacy_tags(self):
         tags = [
-            {"name": "release/9.0.0-rc.1", "commit": {"sha": "candidate"}},
-            {"name": "release/rc10.0.0", "commit": {"sha": "old-rc-format"}},
+            {"name": "releases/9.0.0-rc.1", "commit": {"sha": "candidate"}},
+            {"name": "releases/rc10.0.0", "commit": {"sha": "old-rc-format"}},
             {"name": "RELEASE-10.0.0", "commit": {"sha": "legacy"}},
-            {"name": "release/2.9.0", "commit": {"sha": "old"}},
-            {"name": "release/2.10.0", "commit": {"sha": "new"}},
+            {"name": "release/99.0.0", "commit": {"sha": "old-prefix"}},
+            {"name": "releases/2.9.0", "commit": {"sha": "old"}},
+            {"name": "releases/2.10.0", "commit": {"sha": "new"}},
         ]
 
         selected = self.selector.select_release(tags, "production")
 
-        self.assertEqual(selected.tag, "release/2.10.0")
+        self.assertEqual(selected.tag, "releases/2.10.0")
         self.assertEqual(selected.version, "2.10.0")
         self.assertEqual(selected.sha, "new")
 
     def test_release_candidate_rejects_non_semver_numeric_identifiers(self):
         invalid_tags = [
-            "release/01.0.0-rc.1",
-            "release/1.00.0-rc.1",
-            "release/1.0.00-rc.1",
-            "release/1.0.0-rc.01",
-            "release/1.0.0-rc1",
-            "release/1.0.0-RC.1",
+            "releases/01.0.0-rc.1",
+            "releases/1.00.0-rc.1",
+            "releases/1.0.00-rc.1",
+            "releases/1.0.0-rc.01",
+            "releases/1.0.0-rc1",
+            "releases/1.0.0-RC.1",
         ]
 
         with self.assertRaises(self.selector.NoMatchingRelease):
@@ -101,7 +103,7 @@ class ReleaseSelectorTestCase(unittest.TestCase):
         result = subprocess.run(
             [sys.executable, str(SELECTOR_PATH), "--channel", "production"],
             input=json.dumps(
-                [{"name": "release/3.1.4", "commit": {"sha": "commit-sha"}}]
+                [{"name": "releases/3.1.4", "commit": {"sha": "commit-sha"}}]
             ),
             check=True,
             capture_output=True,
@@ -110,7 +112,7 @@ class ReleaseSelectorTestCase(unittest.TestCase):
 
         self.assertEqual(
             json.loads(result.stdout),
-            {"sha": "commit-sha", "tag": "release/3.1.4", "version": "3.1.4"},
+            {"sha": "commit-sha", "tag": "releases/3.1.4", "version": "3.1.4"},
         )
 
 
