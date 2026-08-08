@@ -76,6 +76,7 @@ install_os_dependencies() {
     openssl \
     pkg-config \
     python3 \
+    python3-dev \
     redis-server
 
   install -d -m 0755 /etc/apt/keyrings

@@ -31,10 +31,13 @@ on this package.
    version and RC number, and reject a tag whose commit is not reachable from
    `master`. Ignore legacy tags and do not fall back to a branch or another
    channel.
-5. Build locked dependencies in a relocatable Python environment plus static
-   assets in a new release directory, apply migrations, switch the active code
-   symlink, restart Gunicorn and Celery services, and require every application
-   service plus the database-aware health endpoint to remain healthy.
+5. Build locked dependencies from Debian's system Python in a relocatable
+   environment plus static assets in a new release directory. Validate that the
+   runtime is executable by the application service user before applying
+   migrations. Discard and rebuild cached releases that fail this validation.
+   Switch the active code symlink, restart Gunicorn and Celery services, and
+   require every application service plus the database-aware health endpoint to
+   remain healthy.
 6. Serve plain HTTP directly in the isolated LAN by default. When configured,
    trust forwarded scheme and host information from an existing reverse proxy;
    TLS remains outside the LXC.

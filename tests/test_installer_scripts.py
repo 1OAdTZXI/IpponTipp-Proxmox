@@ -77,6 +77,12 @@ class ContainerInstallerTestCase(unittest.TestCase):
         self.assertIn('"$UPDATER_BIN" update', script)
         self.assertNotIn("\n  ippontipp-deploy update\n", script)
 
+    def test_installs_headers_for_the_system_python_runtime(self):
+        script = CONTAINER_INSTALLER.read_text()
+
+        self.assertRegex(script, r"(?m)^    python3 \\$")
+        self.assertRegex(script, r"(?m)^    python3-dev \\$")
+
 
 if __name__ == "__main__":
     unittest.main()

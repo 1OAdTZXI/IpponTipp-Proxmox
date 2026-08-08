@@ -62,12 +62,15 @@ ippontipp-deploy check
 ippontipp-deploy update
 ```
 
-The update builds a locked, relocatable Python environment and Vue bundle in a
-new release directory, applies migrations, switches the `current` symlink, and
-restarts the web and Celery services. Activation succeeds only after all three
-application services remain active and `/api/health/` passes three consecutive
-checks. A failed service start or runtime check switches the code symlink back,
-but intentionally does not reverse database migrations.
+The update builds a locked, relocatable Python environment from Debian's system
+Python and a Vue bundle in a new release directory. Before activation, the
+Python runtime is executed as the `ippontipp` service user; an unusable cached
+release is discarded and rebuilt. The updater then applies migrations, switches
+the `current` symlink, and restarts the web and Celery services. Activation
+succeeds only after all three application services remain active and
+`/api/health/` passes three consecutive checks. A failed service start or
+runtime check switches the code symlink back, but intentionally does not reverse
+database migrations.
 
 ## Public bootstrap repository
 
@@ -93,10 +96,10 @@ credentials, and Django secrets remain private. Publish a version tag in the
 bootstrap repository and use that immutable tag for installation. `main` is
 useful while developing the installer but is not a stable installation source.
 
-Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.1`:
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.2`:
 
 ```bash
-export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.1"
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.2"
 bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
 ```
 

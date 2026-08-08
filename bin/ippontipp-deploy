@@ -56,19 +56,21 @@ load_configuration() {
 
 create_curl_config() {
   CURL_CONFIG="$TEMP_DIR/curl.conf"
-  umask 077
-  {
-    printf 'fail\n'
-    printf 'silent\n'
-    printf 'show-error\n'
-    printf 'location\n'
-    printf 'connect-timeout = 15\n'
-    printf 'retry = 3\n'
-    printf 'header = "Accept: application/vnd.github+json"\n'
-    printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN"
-    printf 'header = "X-GitHub-Api-Version: %s"\n' "${GITHUB_API_VERSION:-2026-03-10}"
-    printf 'user-agent = "IpponTipp-Proxmox-Updater"\n'
-  } >"$CURL_CONFIG"
+  (
+    umask 077
+    {
+      printf 'fail\n'
+      printf 'silent\n'
+      printf 'show-error\n'
+      printf 'location\n'
+      printf 'connect-timeout = 15\n'
+      printf 'retry = 3\n'
+      printf 'header = "Accept: application/vnd.github+json"\n'
+      printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_TOKEN"
+      printf 'header = "X-GitHub-Api-Version: %s"\n' "${GITHUB_API_VERSION:-2026-03-10}"
+      printf 'user-agent = "IpponTipp-Proxmox-Updater"\n'
+    } >"$CURL_CONFIG"
+  )
 }
 
 github_get() {
@@ -138,6 +140,12 @@ installed_sha() {
   fi
 }
 
+validate_release_runtime() {
+  local release_path="$1"
+  runuser --user ippontipp -- "$release_path/.venv/bin/python" \
+    -c 'import celery, gunicorn'
+}
+
 build_release() {
   local staging="$APP_ROOT/releases/.staging-$RELEASE_SHA-$$"
   local archive="$TEMP_DIR/source.tar.gz"
@@ -158,6 +166,9 @@ build_release() {
     UV_VENV_RELOCATABLE=1 \
     uv sync \
     --project "$staging/.devcontainer/python" \
+    --python /usr/bin/python3 \
+    --no-managed-python \
+    --no-python-downloads \
     --locked \
     --no-dev \
     --no-install-project
@@ -173,19 +184,39 @@ build_release() {
 
   rm -rf "$staging/frontend/node_modules"
   chown -R ippontipp:ippontipp "$staging"
+
+  log "Validating Python runtime as the application service user"
+  if ! validate_release_runtime "$staging"; then
+    fail "The Python runtime cannot be executed by the ippontipp service user"
+  fi
+
   mv "$staging" "$APP_ROOT/releases/$RELEASE_SHA"
   ACTIVE_STAGING_DIR=""
 }
 
+ensure_release_available() {
+  local release_path="$APP_ROOT/releases/$RELEASE_SHA"
+  if [[ -d "$release_path" ]] && ! validate_release_runtime "$release_path"; then
+    log "Discarding cached release with an unusable Python runtime: $release_path"
+    rm -rf -- "$release_path"
+  fi
+
+  if [[ ! -d "$release_path" ]]; then
+    build_release
+  fi
+}
+
 write_state() {
   local temporary_state="$STATE_FILE.tmp"
-  umask 077
-  {
-    printf 'DEPLOYMENT_CHANNEL="%s"\n' "$DEPLOYMENT_CHANNEL"
-    printf 'INSTALLED_SHA="%s"\n' "$RELEASE_SHA"
-    printf 'INSTALLED_TAG="%s"\n' "$RELEASE_TAG"
-    printf 'INSTALLED_VERSION="%s"\n' "$RELEASE_VERSION"
-  } >"$temporary_state"
+  (
+    umask 077
+    {
+      printf 'DEPLOYMENT_CHANNEL="%s"\n' "$DEPLOYMENT_CHANNEL"
+      printf 'INSTALLED_SHA="%s"\n' "$RELEASE_SHA"
+      printf 'INSTALLED_TAG="%s"\n' "$RELEASE_TAG"
+      printf 'INSTALLED_VERSION="%s"\n' "$RELEASE_VERSION"
+    } >"$temporary_state"
+  )
   chown root:root "$temporary_state"
   mv "$temporary_state" "$STATE_FILE"
 }
@@ -309,9 +340,11 @@ main() {
   require_command flock
   require_command npm
   require_command python3
+  require_command runuser
   require_command systemctl
   require_command tar
   require_command uv
+  [[ -x /usr/bin/python3 ]] || fail "Required system Python not found: /usr/bin/python3"
 
   mkdir -p "$APP_ROOT/releases" "$(dirname "$STATE_FILE")"
   exec 9>"$LOCK_FILE"
@@ -334,9 +367,7 @@ main() {
   log "Newest $DEPLOYMENT_CHANNEL release: $RELEASE_TAG ($RELEASE_SHA)"
   [[ "$operation" == "check" ]] && return 0
 
-  if [[ ! -d "$APP_ROOT/releases/$RELEASE_SHA" ]]; then
-    build_release
-  fi
+  ensure_release_available
   activate_release
 }
 

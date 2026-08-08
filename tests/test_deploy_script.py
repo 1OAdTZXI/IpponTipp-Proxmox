@@ -37,6 +37,21 @@ class ReleaseBuildTestCase(unittest.TestCase):
     def test_uv_environment_is_created_as_relocatable(self):
         self.assertIn("UV_VENV_RELOCATABLE=1", DEPLOY_SCRIPT.read_text())
 
+    def test_build_uses_the_system_python_interpreter(self):
+        script = DEPLOY_SCRIPT.read_text()
+        self.assertIn("--python /usr/bin/python3", script)
+        self.assertIn("--no-managed-python", script)
+        self.assertIn("--no-python-downloads", script)
+
+    def test_runtime_python_is_validated_as_the_service_user(self):
+        script = DEPLOY_SCRIPT.read_text()
+        self.assertIn("require_command runuser", script)
+        self.assertIn(
+            'runuser --user ippontipp -- "$release_path/.venv/bin/python"',
+            script,
+        )
+        self.assertIn('validate_release_runtime "$staging"', script)
+
     def test_deployer_uses_a_deterministic_system_path(self):
         self.assertIn(
             'export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"',
@@ -63,6 +78,56 @@ cleanup_temporary_files
                 input=script_without_main(DEPLOY_SCRIPT) + harness,
                 capture_output=True,
                 env={**os.environ, "IPPONTIPP_APP_ROOT": str(app_root)},
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_invalid_cached_release_is_rebuilt(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            app_root = Path(temporary_directory) / "app"
+            cached_release = app_root / "releases" / "cached"
+            cached_release.mkdir(parents=True)
+
+            harness = r'''
+RELEASE_SHA=cached
+
+validate_release_runtime() {
+  return 1
+}
+
+build_release() {
+  [[ ! -e "$APP_ROOT/releases/$RELEASE_SHA" ]] || return 1
+  mkdir -p "$APP_ROOT/releases/$RELEASE_SHA"
+  touch "$APP_ROOT/releases/$RELEASE_SHA/rebuilt"
+}
+
+ensure_release_available
+[[ -f "$APP_ROOT/releases/$RELEASE_SHA/rebuilt" ]]
+'''
+            result = subprocess.run(
+                ["bash", "-s"],
+                input=script_without_main(DEPLOY_SCRIPT) + harness,
+                capture_output=True,
+                env={**os.environ, "IPPONTIPP_APP_ROOT": str(app_root)},
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_curl_configuration_does_not_change_the_callers_umask(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            harness = rf'''
+TEMP_DIR={temporary_directory}
+GITHUB_TOKEN=test_token
+original_umask="$(umask)"
+create_curl_config
+[[ "$(umask)" == "$original_umask" ]]
+'''
+            result = subprocess.run(
+                ["bash", "-s"],
+                input=script_without_main(DEPLOY_SCRIPT) + harness,
+                capture_output=True,
                 text=True,
             )
 
