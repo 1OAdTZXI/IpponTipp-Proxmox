@@ -5,9 +5,18 @@ internal IpponTipp test environment. It creates one unprivileged Debian 13 LXC
 and installs the application and its local services. Create separate containers
 for `release-candidate` and `production`; they do not share data or secrets.
 
+The contents of `deploy/proxmox/` form the complete source of the separate
+public `IpponTipp-Proxmox` repository. The application does not import or invoke
+this package. The dependency points in the other direction: this package knows
+the private application's repository layout, environment contract, process
+entry points, migrations, and health endpoint. Future deployment adapters can
+use separate directories without changing this package boundary.
+
 The package is designed for Proxmox VE 9 or newer on AMD64. Its host script has
 not yet been exercised against a real Proxmox host from this repository's test
 environment, so the first installation should be treated as an acceptance test.
+The rationale and operational trade-offs are recorded in
+[`docs/adr/0001-proxmox-test-deployment.md`](docs/adr/0001-proxmox-test-deployment.md).
 
 ## Deployment model
 
@@ -64,19 +73,23 @@ Place the contents of this directory at the root of a small public repository,
 recommended as `IpponTipp-Proxmox`. The resulting public layout is:
 
 ```text
+.gitignore
+README.md
 ct/ippontipp.sh
 install/ippontipp-install.sh
 bin/ippontipp-deploy
 lib/release_selector.py
 runtime/nginx/ippontipp.conf
 runtime/systemd/ippontipp-{web,worker,beat}.service
+tests/test_release_selector.py
+docs/adr/0001-proxmox-test-deployment.md
 ```
 
-Only generic installation logic belongs there. Application source, GitHub
-credentials, generated database credentials, and Django secrets remain private.
-Publish a version tag in the bootstrap repository and use that immutable tag for
-installation. `main` is useful while developing the installer but is not a
-stable installation source.
+Only this deployment adapter, its tests, and its operational documentation
+belong there. Application source, GitHub credentials, generated database
+credentials, and Django secrets remain private. Publish a version tag in the
+bootstrap repository and use that immutable tag for installation. `main` is
+useful while developing the installer but is not a stable installation source.
 
 Example, run as `root` in the Proxmox host shell after publishing tag `v0.1.0`:
 
@@ -155,6 +168,17 @@ systemctl status ippontipp-web ippontipp-worker ippontipp-beat nginx mariadb red
 journalctl -u ippontipp-web -u ippontipp-worker -u ippontipp-beat --since today
 curl --fail http://127.0.0.1/api/health/
 ```
+
+## Known limitations
+
+- The installer still requires one end-to-end acceptance run on the target
+  Proxmox host; local checks cannot verify template discovery, storage,
+  networking, package installation, or service startup.
+- A failed health check restores the previous code symlink, but database
+  migrations are not automatically reversed.
+- The root-only GitHub token requires manual expiry and rotation.
+- The adapter assumes the current application layout plus Nginx, MariaDB, Redis,
+  and systemd. It is not intended as a universal production topology.
 
 ## Portability beyond Proxmox
 
