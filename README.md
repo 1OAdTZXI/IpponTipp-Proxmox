@@ -68,7 +68,9 @@ Python runtime is executed as the `ippontipp` service user; an unusable cached
 release is discarded and rebuilt. The updater then applies migrations, switches
 the `current` symlink, and restarts the web and Celery services. Activation
 succeeds only after all three application services remain active and
-`/api/health/` passes three consecutive checks. A failed service start or
+both `/api/health/` and an Nginx-served static probe pass three consecutive
+checks. Release and static-file permissions give the `www-data` group read-only
+access while keeping write access with `ippontipp`. A failed service start or
 runtime check switches the code symlink back, but intentionally does not reverse
 database migrations.
 
@@ -96,10 +98,10 @@ credentials, and Django secrets remain private. Publish a version tag in the
 bootstrap repository and use that immutable tag for installation. `main` is
 useful while developing the installer but is not a stable installation source.
 
-Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.2`:
+Example, run as `root` in the Proxmox host shell after publishing tag `v0.2.3`:
 
 ```bash
-export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.2"
+export IPPONTIPP_INSTALLER_BASE_URL="https://raw.githubusercontent.com/1OAdTZXI/IpponTipp-Proxmox/v0.2.3"
 bash -c "$(curl -fsSL "$IPPONTIPP_INSTALLER_BASE_URL/ct/ippontipp.sh")"
 ```
 

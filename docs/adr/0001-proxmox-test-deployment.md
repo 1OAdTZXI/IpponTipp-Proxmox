@@ -36,8 +36,9 @@ on this package.
    runtime is executable by the application service user before applying
    migrations. Discard and rebuild cached releases that fail this validation.
    Switch the active code symlink, restart Gunicorn and Celery services, and
-   require every application service plus the database-aware health endpoint to
-   remain healthy.
+   require every application service, the database-aware health endpoint, and
+   an Nginx-served static probe to remain healthy. Grant Nginx read-only group
+   access to release roots and collected static files.
 6. Serve plain HTTP directly in the isolated LAN by default. When configured,
    trust forwarded scheme and host information from an existing reverse proxy;
    TLS remains outside the LXC.

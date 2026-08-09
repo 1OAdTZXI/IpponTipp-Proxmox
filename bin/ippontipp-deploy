@@ -146,6 +146,32 @@ validate_release_runtime() {
     -c 'import celery, gunicorn'
 }
 
+configure_static_permissions() {
+  local release_path="$1"
+  chown ippontipp:www-data "$APP_ROOT/releases"
+  chmod 0750 "$APP_ROOT/releases"
+  chown ippontipp:www-data "$release_path"
+  chmod 0750 "$release_path"
+
+  if [[ -d "$release_path/static" ]]; then
+    chown -R ippontipp:www-data "$release_path/static"
+    chmod -R u=rwX,g=rX,o= "$release_path/static"
+  fi
+}
+
+repair_active_release_permissions() {
+  local active_release=""
+  chown ippontipp:www-data "$APP_ROOT/releases"
+  chmod 0750 "$APP_ROOT/releases"
+
+  if [[ -L "$APP_ROOT/current" ]]; then
+    active_release="$(readlink -f "$APP_ROOT/current" 2>/dev/null || true)"
+  fi
+  if [[ -n "$active_release" && -d "$active_release" ]]; then
+    configure_static_permissions "$active_release"
+  fi
+}
+
 build_release() {
   local staging="$APP_ROOT/releases/.staging-$RELEASE_SHA-$$"
   local archive="$TEMP_DIR/source.tar.gz"
@@ -181,9 +207,11 @@ build_release() {
   DJANGO_ENV=prod "$staging/.venv/bin/python" "$staging/manage.py" check
   DJANGO_ENV=prod "$staging/.venv/bin/python" \
     "$staging/manage.py" collectstatic --noinput
+  printf 'ok\n' >"$staging/static/ippontipp-static-health.txt"
 
   rm -rf "$staging/frontend/node_modules"
   chown -R ippontipp:ippontipp "$staging"
+  configure_static_permissions "$staging"
 
   log "Validating Python runtime as the application service user"
   if ! validate_release_runtime "$staging"; then
@@ -257,7 +285,9 @@ wait_for_runtime() {
   local attempt stable_checks=0
   for attempt in {1..20}; do
     if application_services_active &&
-      curl --fail --silent --show-error http://127.0.0.1/api/health/ >/dev/null; then
+      curl --fail --silent --show-error http://127.0.0.1/api/health/ >/dev/null &&
+      curl --fail --silent --show-error \
+        http://127.0.0.1/static/ippontipp-static-health.txt >/dev/null; then
       stable_checks=$((stable_checks + 1))
       if ((stable_checks >= 3)); then
         return 0
@@ -349,6 +379,7 @@ main() {
   mkdir -p "$APP_ROOT/releases" "$(dirname "$STATE_FILE")"
   exec 9>"$LOCK_FILE"
   flock -n 9 || fail "Another IpponTipp deployment is already running"
+  repair_active_release_permissions
 
   TEMP_DIR="$(mktemp -d)"
   trap 'cleanup_temporary_files' EXIT

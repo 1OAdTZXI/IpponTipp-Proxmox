@@ -141,7 +141,9 @@ configure_database_and_filesystem() {
     useradd --system --home-dir /var/lib/ippontipp --create-home --shell /usr/sbin/nologin ippontipp
   fi
 
-  install -d -o ippontipp -g ippontipp -m 0750 /opt/ippontipp/releases /var/lib/ippontipp
+  install -d -o root -g root -m 0755 /opt/ippontipp
+  install -d -o ippontipp -g www-data -m 0750 /opt/ippontipp/releases
+  install -d -o ippontipp -g ippontipp -m 0750 /var/lib/ippontipp
   install -d -o root -g root -m 0700 /etc/ippontipp /usr/local/lib/ippontipp
 
   local database_password django_secret

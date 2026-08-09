@@ -83,6 +83,19 @@ class ContainerInstallerTestCase(unittest.TestCase):
         self.assertRegex(script, r"(?m)^    python3 \\$")
         self.assertRegex(script, r"(?m)^    python3-dev \\$")
 
+    def test_release_directory_is_traversable_by_nginx(self):
+        script = CONTAINER_INSTALLER.read_text()
+
+        self.assertIn(
+            "install -d -o root -g root -m 0755 /opt/ippontipp",
+            script,
+        )
+        self.assertIn(
+            "install -d -o ippontipp -g www-data -m 0750 "
+            "/opt/ippontipp/releases",
+            script,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

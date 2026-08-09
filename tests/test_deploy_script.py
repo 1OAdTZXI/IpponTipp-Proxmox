@@ -133,6 +133,38 @@ create_curl_config
 
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_static_files_are_made_accessible_to_nginx(self):
+        script = DEPLOY_SCRIPT.read_text()
+        self.assertIn(
+            'chown ippontipp:www-data "$APP_ROOT/releases"',
+            script,
+        )
+        self.assertIn(
+            'chown -R ippontipp:www-data "$release_path/static"',
+            script,
+        )
+        self.assertIn(
+            'chmod -R u=rwX,g=rX,o= "$release_path/static"',
+            script,
+        )
+
+    def test_active_release_permissions_are_repaired_before_version_shortcut(self):
+        main_body = DEPLOY_SCRIPT.read_text().split("main() {", maxsplit=1)[1]
+
+        self.assertLess(
+            main_body.index("repair_active_release_permissions"),
+            main_body.index("current_sha="),
+        )
+
+    def test_runtime_checks_include_the_nginx_static_probe(self):
+        script = DEPLOY_SCRIPT.read_text()
+
+        self.assertIn("ippontipp-static-health.txt", script)
+        self.assertIn(
+            "http://127.0.0.1/static/ippontipp-static-health.txt",
+            script,
+        )
+
 
 class ReleaseActivationTestCase(unittest.TestCase):
     def create_release_fixture(self, temporary_directory):
