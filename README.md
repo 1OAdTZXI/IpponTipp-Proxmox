@@ -27,7 +27,7 @@ browser or optional existing reverse proxy
                   |
                Nginx
                   |
-       Gunicorn / Django / Vue SPA
+    Gunicorn / Uvicorn ASGI / Vue SPA
              |             |
           MariaDB       Redis
                           |
@@ -194,7 +194,7 @@ curl --fail http://127.0.0.1/api/health/
 The Proxmox-specific part is limited to LXC creation and local service
 provisioning. The reusable application contract is a tagged source revision,
 locked Python and npm dependencies, environment-provided configuration, a
-Gunicorn web process, Celery Worker and Beat processes, Redis, migrations, a
+Gunicorn/Uvicorn ASGI web process, Celery Worker and Beat processes, Redis, migrations, a
 static build, and a health endpoint.
 
 That contract maps well to a conventional IONOS VM or container host. A managed

@@ -34,6 +34,19 @@ class ReleaseBuildTestCase(unittest.TestCase):
                     unit,
                 )
 
+    def test_web_runtime_uses_the_asgi_application(self):
+        unit = (SYSTEMD_DIRECTORY / "ippontipp-web.service").read_text()
+
+        self.assertIn("--worker-class uvicorn_worker.UvicornWorker", unit)
+        self.assertIn("IpponTipp.asgi:application", unit)
+        self.assertNotIn("IpponTipp.wsgi", unit)
+
+    def test_nginx_does_not_buffer_the_log_stream(self):
+        nginx_config = (REPOSITORY_ROOT / "runtime" / "nginx" / "ippontipp.conf").read_text()
+
+        self.assertIn("location /api/logs/stream/", nginx_config)
+        self.assertIn("proxy_buffering off;", nginx_config)
+
     def test_uv_environment_is_created_as_relocatable(self):
         self.assertIn("UV_VENV_RELOCATABLE=1", DEPLOY_SCRIPT.read_text())
 
