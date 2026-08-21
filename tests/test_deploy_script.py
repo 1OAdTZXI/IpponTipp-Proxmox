@@ -79,13 +79,13 @@ class ReleaseBuildTestCase(unittest.TestCase):
             temporary_downloads.mkdir(parents=True)
             staging.mkdir(parents=True)
 
-            harness = rf'''
+            harness = rf"""
 TEMP_DIR={temporary_downloads}
 ACTIVE_STAGING_DIR={staging}
 cleanup_temporary_files
 [[ ! -e "$TEMP_DIR" ]]
 [[ ! -e "$ACTIVE_STAGING_DIR" ]]
-'''
+"""
             result = subprocess.run(
                 ["bash", "-s"],
                 input=script_without_main(DEPLOY_SCRIPT) + harness,
@@ -102,7 +102,7 @@ cleanup_temporary_files
             cached_release = app_root / "releases" / "cached"
             cached_release.mkdir(parents=True)
 
-            harness = r'''
+            harness = r"""
 RELEASE_SHA=cached
 
 validate_release_runtime() {
@@ -117,7 +117,7 @@ build_release() {
 
 ensure_release_available
 [[ -f "$APP_ROOT/releases/$RELEASE_SHA/rebuilt" ]]
-'''
+"""
             result = subprocess.run(
                 ["bash", "-s"],
                 input=script_without_main(DEPLOY_SCRIPT) + harness,
@@ -130,13 +130,13 @@ ensure_release_available
 
     def test_curl_configuration_does_not_change_the_callers_umask(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
-            harness = rf'''
+            harness = rf"""
 TEMP_DIR={temporary_directory}
 GITHUB_TOKEN=test_token
 original_umask="$(umask)"
 create_curl_config
 [[ "$(umask)" == "$original_umask" ]]
-'''
+"""
             result = subprocess.run(
                 ["bash", "-s"],
                 input=script_without_main(DEPLOY_SCRIPT) + harness,
@@ -195,11 +195,9 @@ class ReleaseActivationTestCase(unittest.TestCase):
 
     def test_failed_service_restart_restores_previous_release(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
-            app_root, previous_release = self.create_release_fixture(
-                temporary_directory
-            )
+            app_root, previous_release = self.create_release_fixture(temporary_directory)
 
-            harness = r'''
+            harness = r"""
 RELEASE_SHA=new
 RELEASE_TAG=releases/1.0.0
 RELEASE_VERSION=1.0.0
@@ -226,7 +224,7 @@ report_current_release() {
 trap report_current_release EXIT
 
 activate_release
-'''
+"""
             environment = {
                 **os.environ,
                 "IPPONTIPP_APP_ROOT": str(app_root),
@@ -244,11 +242,9 @@ activate_release
 
     def test_inactive_worker_fails_runtime_check_and_restores_previous_release(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
-            app_root, previous_release = self.create_release_fixture(
-                temporary_directory
-            )
+            app_root, previous_release = self.create_release_fixture(temporary_directory)
 
-            harness = r'''
+            harness = r"""
 RELEASE_SHA=new
 RELEASE_TAG=releases/1.0.0
 RELEASE_VERSION=1.0.0
@@ -283,7 +279,7 @@ report_current_release() {
 trap report_current_release EXIT
 
 activate_release
-'''
+"""
             result = subprocess.run(
                 ["bash", "-s"],
                 input=script_without_main(DEPLOY_SCRIPT) + harness,
@@ -307,7 +303,7 @@ activate_release
             python_binary.chmod(0o755)
             (new_release / "manage.py").touch()
 
-            harness = r'''
+            harness = r"""
 RELEASE_SHA=new
 RELEASE_TAG=releases/1.0.0
 RELEASE_VERSION=1.0.0
@@ -334,7 +330,7 @@ report_current_release() {
 trap report_current_release EXIT
 
 activate_release
-'''
+"""
             result = subprocess.run(
                 ["bash", "-s"],
                 input=script_without_main(DEPLOY_SCRIPT) + harness,

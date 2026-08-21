@@ -59,18 +59,14 @@ def select_release(tags: list[dict[str, Any]], channel: str) -> Release:
         match = pattern.fullmatch(name)
         if match is None:
             continue
-        core_version = tuple(
-            int(match.group(part)) for part in ("major", "minor", "patch")
-        )
+        core_version = tuple(int(match.group(part)) for part in ("major", "minor", "patch"))
         prerelease = match.groupdict().get("prerelease")
         if prerelease is None:
             version = ".".join(str(part) for part in core_version)
             version_tuple = core_version
         else:
             prerelease_number = int(prerelease)
-            version = (
-                f"{'.'.join(str(part) for part in core_version)}-rc.{prerelease_number}"
-            )
+            version = f"{'.'.join(str(part) for part in core_version)}-rc.{prerelease_number}"
             version_tuple = (*core_version, prerelease_number)
         releases.append(
             Release(
@@ -90,9 +86,7 @@ def select_release(tags: list[dict[str, Any]], channel: str) -> Release:
 def assert_master_contains(comparison: dict[str, Any], candidate_sha: str) -> None:
     merge_base_sha = comparison.get("merge_base_commit", {}).get("sha")
     if merge_base_sha != candidate_sha:
-        raise TagNotOnMaster(
-            f"Selected commit {candidate_sha} is not reachable from master"
-        )
+        raise TagNotOnMaster(f"Selected commit {candidate_sha} is not reachable from master")
 
 
 def main() -> int:

@@ -18,7 +18,7 @@ def script_without_main(path: Path) -> str:
 
 class HostInstallerTestCase(unittest.TestCase):
     def test_container_enables_nesting_for_systemd_services(self):
-        harness = r'''
+        harness = r"""
 CTID=108
 TEMPLATE_REF=local:vztmpl/debian-13.tar.zst
 CORES=2
@@ -39,7 +39,7 @@ pct() {
 }
 
 create_container
-'''
+"""
         result = subprocess.run(
             ["bash", "-s"],
             input=script_without_main(HOST_INSTALLER) + harness,
@@ -49,9 +49,7 @@ create_container
         )
 
         create_arguments = [
-            line.removeprefix("CREATE_ARG=")
-            for line in result.stdout.splitlines()
-            if line.startswith("CREATE_ARG=")
+            line.removeprefix("CREATE_ARG=") for line in result.stdout.splitlines() if line.startswith("CREATE_ARG=")
         ]
         feature_index = create_arguments.index("--features")
         self.assertEqual(create_arguments[feature_index + 1], "nesting=1")
@@ -91,8 +89,7 @@ class ContainerInstallerTestCase(unittest.TestCase):
             script,
         )
         self.assertIn(
-            "install -d -o ippontipp -g www-data -m 0750 "
-            "/opt/ippontipp/releases",
+            "install -d -o ippontipp -g www-data -m 0750 /opt/ippontipp/releases",
             script,
         )
 

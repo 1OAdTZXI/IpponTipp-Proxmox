@@ -102,9 +102,7 @@ class ReleaseSelectorTestCase(unittest.TestCase):
     def test_cli_outputs_machine_readable_selection(self):
         result = subprocess.run(
             [sys.executable, str(SELECTOR_PATH), "--channel", "production"],
-            input=json.dumps(
-                [{"name": "releases/3.1.4", "commit": {"sha": "commit-sha"}}]
-            ),
+            input=json.dumps([{"name": "releases/3.1.4", "commit": {"sha": "commit-sha"}}]),
             check=True,
             capture_output=True,
             text=True,
